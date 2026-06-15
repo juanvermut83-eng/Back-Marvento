@@ -1,19 +1,8 @@
 const axios = require("axios");
 const crypto = require("crypto");
 const Pedido = require("../models/pedido");
-
-const PRODUCTOS_CHECKOUT = {
-    rojo: {
-        id: "rojo",
-        title: "Marvento Rojo",
-        unit_price: 12500,
-    },
-    bianco: {
-        id: "bianco",
-        title: "Marvento Bianco",
-        unit_price: 12500,
-    },
-};
+const Producto = require("../models/producto");
+const { ensureProductosIniciales } = require("./producto");
 
 const getAccessToken = () => process.env.MERCADOPAGO_ACCESS_TOKEN;
 const getWebhookSecret = () => process.env.MERCADOPAGO_WEBHOOK_SECRET;
@@ -147,12 +136,17 @@ const validarCliente = (payer = {}, envio = {}) => {
     return { cliente, envio: datosEnvio };
 };
 
-const construirItems = (itemsCarrito) => {
+const construirItems = async (itemsCarrito) => {
+    await ensureProductosIniciales();
+
     const itemsMercadoPago = [];
     const itemsPedido = [];
 
     for (const item of itemsCarrito) {
-        const producto = PRODUCTOS_CHECKOUT[item?.id];
+        const producto = await Producto.findOne({
+            slug: item?.id,
+            activo: true,
+        }).lean();
         const quantity = normalizarCantidad(item?.cantidad);
 
         if (!producto || !quantity) {
@@ -161,21 +155,27 @@ const construirItems = (itemsCarrito) => {
             };
         }
 
-        const total = producto.unit_price * quantity;
+        if (producto.stock < quantity) {
+            return {
+                error: `No hay stock suficiente de ${producto.nombre}`,
+            };
+        }
+
+        const total = producto.precioUnitario * quantity;
 
         itemsMercadoPago.push({
-            id: producto.id,
-            title: producto.title,
+            id: producto.slug,
+            title: producto.nombre,
             quantity,
-            unit_price: producto.unit_price,
+            unit_price: producto.precioUnitario,
             currency_id: "ARS",
         });
 
         itemsPedido.push({
-            productoId: producto.id,
-            nombre: producto.title,
+            productoId: producto.slug,
+            nombre: producto.nombre,
             cantidad: quantity,
-            precioUnitario: producto.unit_price,
+            precioUnitario: producto.precioUnitario,
             total,
         });
     }
@@ -207,7 +207,7 @@ const crearPreferencia = async (req, res) => {
             return res.status(400).json({ message: clienteValidado.error });
         }
 
-        const itemsValidados = construirItems(itemsCarrito);
+        const itemsValidados = await construirItems(itemsCarrito);
 
         if (itemsValidados.error) {
             return res.status(400).json({ message: itemsValidados.error });
@@ -343,6 +343,7 @@ const actualizarPedidoDesdePago = async (paymentId) => {
 
     const nuevoEstado = mapEstadoMercadoPago(payment.status);
 
+    const estadoAnterior = pedido.estado;
     pedido.estado = nuevoEstado;
     pedido.mercadoPago = {
         ...pedido.mercadoPago?.toObject?.(),
@@ -359,6 +360,17 @@ const actualizarPedidoDesdePago = async (paymentId) => {
         detalle: `Pago ${payment.status}${payment.status_detail ? `: ${payment.status_detail}` : ""}`,
         origen: "webhook",
     });
+
+    if (nuevoEstado === "PAGADO" && estadoAnterior !== "PAGADO" && !pedido.stockDescontado) {
+        for (const item of pedido.items) {
+            await Producto.updateOne(
+                { slug: item.productoId },
+                { $inc: { stock: -item.cantidad } }
+            );
+        }
+
+        pedido.stockDescontado = true;
+    }
 
     await pedido.save();
 

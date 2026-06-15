@@ -86,6 +86,10 @@ const PedidoSchema = new Schema(
             externalReference: { type: String, trim: true, index: true },
             initPoint: { type: String, trim: true },
         },
+        stockDescontado: {
+            type: Boolean,
+            default: false,
+        },
         historialEstados: [
             {
                 estado: { type: String, required: true },
