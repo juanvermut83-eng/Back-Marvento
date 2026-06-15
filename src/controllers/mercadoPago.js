@@ -1,4 +1,5 @@
 const axios = require("axios");
+const crypto = require("crypto");
 const Pedido = require("../models/pedido");
 
 const PRODUCTOS_CHECKOUT = {
@@ -15,6 +16,22 @@ const PRODUCTOS_CHECKOUT = {
 };
 
 const getAccessToken = () => process.env.MERCADOPAGO_ACCESS_TOKEN;
+const getWebhookSecret = () => process.env.MERCADOPAGO_WEBHOOK_SECRET;
+
+const getMercadoPagoErrorMessage = (error) => {
+    const responseData = error.response?.data;
+    const causeMessages = Array.isArray(responseData?.cause)
+        ? responseData.cause
+            .map((cause) => cause.description || cause.message || cause.code)
+            .filter(Boolean)
+        : [];
+
+    return responseData?.message
+        || responseData?.error
+        || causeMessages.join(" | ")
+        || error.message
+        || "No se pudo crear la preferencia de pago";
+};
 
 const normalizarTexto = (value) => String(value || "").trim();
 
@@ -41,6 +58,62 @@ const mapEstadoMercadoPago = (status) => {
     };
 
     return estados[status] || "PENDIENTE";
+};
+
+const parseSignatureHeader = (signatureHeader = "") => {
+    return signatureHeader.split(",").reduce((parts, part) => {
+        const [key, value] = part.split("=");
+
+        if (key && value) {
+            parts[key.trim()] = value.trim();
+        }
+
+        return parts;
+    }, {});
+};
+
+const safeCompare = (expected, received) => {
+    if (!expected || !received || expected.length !== received.length) {
+        return false;
+    }
+
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
+};
+
+const validarFirmaWebhook = (req) => {
+    const secret = getWebhookSecret();
+
+    if (!secret) {
+        return true;
+    }
+
+    const signatureHeader = req.headers["x-signature"];
+    const requestId = req.headers["x-request-id"];
+    const { ts, v1 } = parseSignatureHeader(signatureHeader);
+
+    if (!ts || !v1) {
+        return false;
+    }
+
+    const dataId = req.query["data.id"] || req.query.id;
+    const signatureParts = [];
+
+    if (dataId) {
+        signatureParts.push(`id:${String(dataId).toLowerCase()};`);
+    }
+
+    if (requestId) {
+        signatureParts.push(`request-id:${requestId};`);
+    }
+
+    signatureParts.push(`ts:${ts};`);
+
+    const expectedSignature = crypto
+        .createHmac("sha256", secret)
+        .update(signatureParts.join(""))
+        .digest("hex");
+
+    return safeCompare(expectedSignature, v1);
 };
 
 const validarCliente = (payer = {}, envio = {}) => {
@@ -235,9 +308,7 @@ const crearPreferencia = async (req, res) => {
         });
     } catch (error) {
         const status = error.response?.status || 500;
-        const message = error.response?.data?.message
-            || error.response?.data?.error
-            || "No se pudo crear la preferencia de pago";
+        const message = getMercadoPagoErrorMessage(error);
 
         console.error("Error Mercado Pago:", error.response?.data || error.message);
 
@@ -296,8 +367,12 @@ const actualizarPedidoDesdePago = async (paymentId) => {
 
 const recibirWebhook = async (req, res) => {
     try {
+        if (!validarFirmaWebhook(req)) {
+            return res.sendStatus(401);
+        }
+
         const topic = req.query.topic || req.query.type || req.body?.type;
-        const paymentId = req.query.id || req.body?.data?.id;
+        const paymentId = req.query["data.id"] || req.query.id || req.body?.data?.id;
 
         if ((topic === "payment" || topic === "payment.created" || topic === "payment.updated") && paymentId) {
             await actualizarPedidoDesdePago(paymentId);
