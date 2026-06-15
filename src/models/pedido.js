@@ -98,9 +98,8 @@ const PedidoSchema = new Schema(
     { timestamps: true }
 );
 
-PedidoSchema.pre('save', async function asignarNumero(next) {
+PedidoSchema.pre('save', async function asignarNumero() {
     if (this.numero) {
-        next();
         return;
     }
 
@@ -111,7 +110,6 @@ PedidoSchema.pre('save', async function asignarNumero(next) {
         .lean();
 
     this.numero = Number(ultimoPedido?.numero || 0) + 1;
-    next();
 });
 
 module.exports = model('Pedido', PedidoSchema);
