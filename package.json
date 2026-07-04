@@ -4,9 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon index.js",
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "renumerar:ordenes-compra": "node scripts/renumerarOrdenesCompra.js"
+    "renumerar:ordenes-compra": "node scripts/renumerarOrdenesCompra.js",
+    "seed:puntos-venta": "node scripts/seedPuntosVenta.js"
   },
   "keywords": [],
   "author": "",

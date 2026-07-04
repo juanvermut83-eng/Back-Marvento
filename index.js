@@ -11,6 +11,8 @@ const personaRoutes = require("./src/routes/persona");
 const mercadoPagoRoutes = require("./src/routes/mercadoPago");
 const pedidoRoutes = require("./src/routes/pedido");
 const productoRoutes = require("./src/routes/producto");
+const consultaRoutes = require("./src/routes/consulta");
+const puntoVentaRoutes = require("./src/routes/puntoVenta");
 
 
 const app = express();
@@ -32,6 +34,8 @@ const startServer = async () => {
   app.use("/mercadopago", mercadoPagoRoutes);
   app.use("/pedidos", pedidoRoutes);
   app.use("/productos", productoRoutes);
+  app.use("/consultas", consultaRoutes);
+  app.use("/puntos-venta", puntoVentaRoutes);
 
   // Puerto
   const PORT = process.env.PORT || 3001;

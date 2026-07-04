@@ -23,6 +23,28 @@ const PRODUCTOS_INICIALES = [
         color: "white",
         activo: true,
     },
+    {
+        slug: "rosso-caja-x6",
+        nombre: "Marvento Rosso Caja x6",
+        tipo: "Caja x6 vermut rosso",
+        descripcion: "Caja de seis unidades de Marvento Rosso.",
+        notas: ["Caja x6", "Rosso", "750 ml"],
+        precioUnitario: 60,
+        stock: 0,
+        color: "red",
+        activo: true,
+    },
+    {
+        slug: "bianco-caja-x6",
+        nombre: "Marvento Bianco Caja x6",
+        tipo: "Caja x6 vermut bianco",
+        descripcion: "Caja de seis unidades de Marvento Bianco.",
+        notas: ["Caja x6", "Bianco", "750 ml"],
+        precioUnitario: 60,
+        stock: 0,
+        color: "white",
+        activo: true,
+    },
 ];
 
 const normalizarSlug = (value) => String(value || "")
@@ -86,8 +108,8 @@ const normalizarProductoInput = (body = {}) => {
 };
 
 const validarProductoInput = (producto) => {
-    if (!producto.slug || !producto.nombre || !producto.tipo || !producto.descripcion) {
-        return "Nombre, tipo y descripcion son obligatorios";
+    if (!producto.slug || !producto.nombre || !producto.tipo) {
+        return "Nombre y tipo son obligatorios";
     }
 
     if (!Number.isFinite(producto.precioUnitario) || producto.precioUnitario <= 0) {
