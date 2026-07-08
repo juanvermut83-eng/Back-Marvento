@@ -13,6 +13,7 @@ const pedidoRoutes = require("./src/routes/pedido");
 const productoRoutes = require("./src/routes/producto");
 const consultaRoutes = require("./src/routes/consulta");
 const puntoVentaRoutes = require("./src/routes/puntoVenta");
+const configuracionSitioRoutes = require("./src/routes/configuracionSitio");
 
 
 const app = express();
@@ -36,6 +37,7 @@ const startServer = async () => {
   app.use("/productos", productoRoutes);
   app.use("/consultas", consultaRoutes);
   app.use("/puntos-venta", puntoVentaRoutes);
+  app.use("/configuracion-sitio", configuracionSitioRoutes);
 
   // Puerto
   const PORT = process.env.PORT || 3001;

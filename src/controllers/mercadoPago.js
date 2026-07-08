@@ -2,6 +2,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 const Pedido = require("../models/pedido");
 const Producto = require("../models/producto");
+const { getConfiguracionSitio } = require("./configuracionSitio");
 const { ensureProductosIniciales } = require("./producto");
 
 const getAccessToken = () => process.env.MERCADOPAGO_ACCESS_TOKEN;
@@ -185,6 +186,14 @@ const construirItems = async (itemsCarrito) => {
 
 const crearPreferencia = async (req, res) => {
     try {
+        const configuracion = await getConfiguracionSitio();
+
+        if (!configuracion.carritoActivo) {
+            return res.status(403).json({
+                message: "El carrito de compras esta desactivado",
+            });
+        }
+
         const accessToken = getAccessToken();
 
         if (!accessToken) {
