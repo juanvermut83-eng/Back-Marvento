@@ -30,6 +30,7 @@ const PRODUCTOS_INICIALES = [
         descripcion: "Caja de seis unidades de Marvento Rosso.",
         notas: ["Caja x6", "Rosso", "750 ml"],
         precioUnitario: 60,
+        ahorroPorcentaje: 10,
         stock: 0,
         color: "red",
         activo: true,
@@ -41,6 +42,7 @@ const PRODUCTOS_INICIALES = [
         descripcion: "Caja de seis unidades de Marvento Bianco.",
         notas: ["Caja x6", "Bianco", "750 ml"],
         precioUnitario: 60,
+        ahorroPorcentaje: 10,
         stock: 0,
         color: "white",
         activo: true,
@@ -63,6 +65,7 @@ const formatProducto = (producto) => ({
     descripcion: producto.descripcion,
     notas: producto.notas || [],
     precioUnitario: producto.precioUnitario,
+    ahorroPorcentaje: producto.ahorroPorcentaje,
     stock: producto.stock,
     color: producto.color,
     activo: producto.activo,
@@ -86,6 +89,9 @@ const normalizarProductoInput = (body = {}) => {
     const tipo = String(body.tipo || "").trim();
     const descripcion = String(body.descripcion || "").trim();
     const precioUnitario = Number(body.precioUnitario);
+    const ahorroPorcentaje = body.ahorroPorcentaje === undefined || body.ahorroPorcentaje === null || body.ahorroPorcentaje === ""
+        ? 0
+        : Number(body.ahorroPorcentaje);
     const stock = Number(body.stock);
     const notas = Array.isArray(body.notas)
         ? body.notas.map((nota) => String(nota).trim()).filter(Boolean)
@@ -101,6 +107,7 @@ const normalizarProductoInput = (body = {}) => {
         descripcion,
         notas,
         precioUnitario,
+        ahorroPorcentaje,
         stock,
         color: ["red", "white"].includes(body.color) ? body.color : "red",
         activo: body.activo !== false,
@@ -114,6 +121,10 @@ const validarProductoInput = (producto) => {
 
     if (!Number.isFinite(producto.precioUnitario) || producto.precioUnitario <= 0) {
         return "El precio debe ser mayor a cero";
+    }
+
+    if (!Number.isFinite(producto.ahorroPorcentaje) || producto.ahorroPorcentaje < 0 || producto.ahorroPorcentaje > 100) {
+        return "El ahorro debe ser un numero entre 0 y 100";
     }
 
     if (!Number.isInteger(producto.stock) || producto.stock < 0) {

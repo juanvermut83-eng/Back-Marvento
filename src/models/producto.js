@@ -34,6 +34,12 @@ const ProductoSchema = new Schema(
             required: true,
             min: 0,
         },
+        ahorroPorcentaje: {
+            type: Number,
+            min: 0,
+            max: 100,
+            default: 0,
+        },
         stock: {
             type: Number,
             required: true,
