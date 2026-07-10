@@ -1,5 +1,5 @@
 const Persona = require("../models/persona");
-const UsuarioAuth = require("../models/usuarioAuth");
+const UsuarioAuth = require("../models/usuarioAuth")
 const CryptoJS = require('crypto-js');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
