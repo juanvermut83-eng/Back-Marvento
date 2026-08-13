@@ -7,6 +7,7 @@ dotenv.config();
 
 const createAdmin = require('./src/boostrap/creaAdmin'); //creo admin
 const authRoutes = require("./src/routes/auth");
+const registrarseRoutes = require("./src/routes/registrarse");
 const personaRoutes = require("./src/routes/persona");
 const mercadoPagoRoutes = require("./src/routes/mercadoPago");
 const pedidoRoutes = require("./src/routes/pedido");
@@ -31,6 +32,7 @@ const startServer = async () => {
 
   // Rutas
   app.use("/auth", authRoutes);
+  app.use("/registrarse", registrarseRoutes);
   app.use("/personas", personaRoutes);
   app.use("/mercadopago", mercadoPagoRoutes);
   app.use("/pedidos", pedidoRoutes);

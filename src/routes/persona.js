@@ -7,7 +7,7 @@ const {
     modificarPersona,
     modificarProveedorCliente,
     actualizarPermisosEmpleado,
-    resetPasswordEmpleado,
+    resetPasswordPersona,
     eliminarPersona,
     modificarMisDatos
 } = require('../controllers/persona');
@@ -56,7 +56,7 @@ router.put(
     '/:id/reset-password',
     verifyToken,
     isAdmin,
-    resetPasswordEmpleado
+    resetPasswordPersona
 );
 
 //eliminar usuario

@@ -1,3 +1,5 @@
+const Usuario = require('../models/persona');
+
 const escaparRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const normalizarTexto = (value) => String(value || '').trim();

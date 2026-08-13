@@ -14,7 +14,7 @@ const getConfiguracionSitio = async () => {
     const config = await ConfiguracionSitio.findOneAndUpdate(
         { key: "global" },
         { $setOnInsert: { key: "global", ...DEFAULT_CONFIG } },
-        { new: true, upsert: true, setDefaultsOnInsert: true }
+        { returnDocument: "after", upsert: true, setDefaultsOnInsert: true }
     ).lean();
 
     return formatConfig(config);
@@ -61,7 +61,7 @@ const actualizarConfiguracionAdmin = async (req, res) => {
         const config = await ConfiguracionSitio.findOneAndUpdate(
             { key: "global" },
             { $set: updates, $setOnInsert: { key: "global" } },
-            { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+            { returnDocument: "after", upsert: true, runValidators: true, setDefaultsOnInsert: true }
         ).lean();
 
         return res.json({ configuracion: formatConfig(config) });

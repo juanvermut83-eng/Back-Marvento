@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const Usuario = require('../models/persona');
 const UsuarioAuth = require('../models/usuarioAuth');
 const CryptoJS = require('crypto-js');
+const jwt = require('jsonwebtoken');
+const { enviarPasswordTemporal } = require('../services/emailService');
 const { 
     escaparRegex,
     normalizarTexto,
@@ -322,7 +324,7 @@ const actualizarPermisosEmpleado = async (req, res) => {
         await UsuarioAuth.findOneAndUpdate(
             { personaId: empleado._id },
             { permisos: permisosNormalizados },
-            { new: true }
+            { returnDocument: "after" }
         );
 
         return res.status(200).json({
@@ -338,26 +340,30 @@ const actualizarPermisosEmpleado = async (req, res) => {
     }
 };
 
-const resetPasswordEmpleado = async (req, res) => {
+const resetPasswordPersona = async (req, res) => {
     try {
         const { id } = req.params;
-        const { password } = req.body;
+        const passwordTemporal = normalizarTexto(req.body?.password);
 
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return res.status(400).json({ message: 'El ID proporcionado no es valido.' });
         }
 
-        if (!password || String(password).length < 6) {
-            return res.status(400).json({ message: 'La contrasena temporal debe tener al menos 6 caracteres.' });
+        if (passwordTemporal.length < 6) {
+            return res.status(400).json({ message: 'Debe ingresar una contraseña temporal de al menos 6 caracteres.' });
         }
 
-        const empleado = await Usuario.findById(id);
-        if (!empleado) {
-            return res.status(404).json({ message: 'Empleado no encontrado' });
+        const persona = await Usuario.findById(id);
+        if (!persona) {
+            return res.status(404).json({ message: 'Persona no encontrada' });
         }
 
-        if (!['ADMIN', 'EMPLEADO'].includes(empleado.rol)) {
-            return res.status(400).json({ message: 'Solo se puede resetear password de usuarios del sistema.' });
+        if (!['ADMIN', 'EMPLEADO', 'CLIENTE'].includes(persona.rol)) {
+            return res.status(400).json({ message: 'Solo se puede resetear password de admin, empleados o clientes.' });
+        }
+
+        if (!persona.email) {
+            return res.status(400).json({ message: 'La persona debe tener email para crear o resetear acceso.' });
         }
 
         if (!process.env.PASS_SEC) {
@@ -365,25 +371,58 @@ const resetPasswordEmpleado = async (req, res) => {
         }
 
         const passwordEncriptada = CryptoJS.AES.encrypt(
-            String(password),
+            passwordTemporal,
             process.env.PASS_SEC
         ).toString();
 
-        empleado.password = passwordEncriptada;
-        await empleado.save();
+        persona.password = passwordEncriptada;
+        await persona.save();
 
         const auth = await UsuarioAuth.findOneAndUpdate(
-            { personaId: empleado._id },
-            { password: passwordEncriptada, email: empleado.email },
-            { new: true }
+            { personaId: persona._id },
+            {
+                password: passwordEncriptada,
+                email: persona.email,
+                roles: [persona.rol],
+                permisos: persona.permisos || [],
+                debeCambiarPassword: true,
+                activo: true
+            },
+            {
+                returnDocument: "after",
+                upsert: true,
+                setDefaultsOnInsert: true
+            }
         );
 
         if (!auth) {
-            return res.status(404).json({ message: 'Usuario de acceso no encontrado para esa persona.' });
+            return res.status(404).json({ message: 'No se pudo crear o actualizar el acceso.' });
+        }
+
+        let emailEnviado = true;
+        try {
+            await enviarPasswordTemporal({
+                email: persona.email,
+                nombre: `${persona.nombre || ''} ${persona.apellido || ''}`.trim(),
+                passwordTemporal
+            });
+        } catch (error) {
+            emailEnviado = false;
+            console.error('Error enviando password temporal:', error.response?.data || error.message);
         }
 
         return res.status(200).json({
-            message: 'Contrasena reseteada correctamente'
+            message: emailEnviado
+                ? 'Contraseña reseteada correctamente. Se envio la contrasena temporal por email.'
+                : 'Contraseña reseteada correctamente, pero no se pudo enviar el email.',
+            emailEnviado,
+            persona: {
+                id: persona._id,
+                nombre: persona.nombre,
+                apellido: persona.apellido,
+                email: persona.email,
+                rol: persona.rol
+            }
         });
     } catch (error) {
         console.error('Error al resetear password:', error);
@@ -436,6 +475,12 @@ const modificarMisDatos = async (req, res) => {
 
         // PASSWORD
         if (passwordNueva) {
+            if (normalizarTexto(passwordNueva).length < 6) {
+                return res.status(400).json({
+                    msg: 'La nueva contraseña debe tener al menos 6 caracteres'
+                });
+            }
+
             if (!passwordActual) {
                 return res.status(400).json({
                     msg: 'Debe ingresar la contraseña actual'
@@ -457,11 +502,36 @@ const modificarMisDatos = async (req, res) => {
                 passwordNueva,
                 process.env.PASS_SEC
             ).toString();
+            usuario.debeCambiarPassword = false;
         }
 
         await usuario.save();
 
-        res.json({ msg: 'Datos actualizados correctamente' });
+        await usuario.populate('personaId');
+        const token = jwt.sign(
+            {
+                id: usuario._id,
+                roles: usuario.roles,
+            },
+            process.env.JWT_SEC,
+        );
+
+        res.json({
+            msg: 'Datos actualizados correctamente',
+            user: {
+                id: usuario._id,
+                personaId: usuario.personaId._id,
+                email: usuario.email,
+                nombre: usuario.personaId.nombre,
+                apellido: usuario.personaId.apellido,
+                telefono: usuario.personaId.telefono,
+                direccion: usuario.personaId.direccion,
+                roles: usuario.roles,
+                permisos: usuario.permisos || usuario.personaId.permisos || [],
+                debeCambiarPassword: Boolean(usuario.debeCambiarPassword),
+                token
+            }
+        });
 
     } catch (error) {
         console.error(error);
@@ -479,7 +549,7 @@ module.exports = {
     modificarPersona,
     modificarProveedorCliente,
     actualizarPermisosEmpleado,
-    resetPasswordEmpleado,
+    resetPasswordPersona,
     eliminarPersona,
     modificarMisDatos
 }

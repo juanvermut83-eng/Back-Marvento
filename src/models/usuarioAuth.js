@@ -25,6 +25,17 @@ const UsuarioAuthSchema = new mongoose.Schema(
             type: [String],
             default: [],
         },
+        debeCambiarPassword: {
+            type: Boolean,
+            default: false,
+        },
+        resetPasswordToken: {
+            type: String,
+            index: true,
+        },
+        resetPasswordExpiresAt: {
+            type: Date,
+        },
         activo: { type: Boolean, default: true },
     },
     { timestamps: true }

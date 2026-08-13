@@ -127,7 +127,7 @@ const modificarPunto = async (req, res) => {
         const punto = await PuntoVenta.findOneAndUpdate(
             { slug: req.params.slug },
             puntoInput,
-            { new: true, runValidators: true }
+            { returnDocument: "after", runValidators: true }
         );
 
         if (!punto) {

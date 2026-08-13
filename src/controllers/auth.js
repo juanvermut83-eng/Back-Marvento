@@ -1,8 +1,14 @@
 const Persona = require("../models/persona");
 const UsuarioAuth = require("../models/usuarioAuth")
 const CryptoJS = require('crypto-js');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
+const {
+    enviarAltaUsuarioSistema,
+    enviarBienvenida,
+    enviarRecuperacionPassword
+} = require('../services/emailService');
 
 const escaparRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -67,6 +73,21 @@ const crearTokenUsuario = (user) => jwt.sign(
     process.env.JWT_SEC,
 );
 
+const hashToken = (token) => crypto
+    .createHash('sha256')
+    .update(String(token || ''))
+    .digest('hex');
+
+const getResetPasswordUrl = (token) => {
+    const baseUrl = normalizarTexto(process.env.FRONTEND_URL) || 'http://localhost:5173';
+    const path = normalizarTexto(process.env.RESET_PASSWORD_PATH) || '/reset-password';
+    const url = new URL(path, baseUrl);
+    url.searchParams.set('token', token);
+    return url.toString();
+};
+
+const getNombrePersona = (persona) => normalizarTexto(`${persona?.nombre || ''} ${persona?.apellido || ''}`);
+
 const formatearUsuarioAuth = (user, token) => {
     const persona = user.personaId;
 
@@ -80,6 +101,7 @@ const formatearUsuarioAuth = (user, token) => {
         direccion: persona.direccion,
         roles: user.roles,
         permisos: user.permisos || persona.permisos || [],
+        debeCambiarPassword: Boolean(user.debeCambiarPassword),
         token
     };
 };
@@ -131,13 +153,21 @@ const crearClienteGoogle = async ({ email, payload }) => {
         process.env.PASS_SEC
     ).toString();
 
-    return UsuarioAuth.create({
+    const usuarioAuth = await UsuarioAuth.create({
         personaId: persona._id,
         email,
         password: passwordGoogle,
         roles: ["CLIENTE"],
-        permisos: []
+        permisos: [],
+        debeCambiarPassword: false
     });
+
+    enviarBienvenida({
+        email,
+        nombre: getNombrePersona(persona)
+    }).catch((error) => console.error('Error enviando bienvenida Google:', error.response?.data || error.message));
+
+    return usuarioAuth;
 };
 
 const login = async (req, res) => {
@@ -240,6 +270,97 @@ const loginGoogle = async (req, res) => {
     }
 };
 
+const solicitarRecuperacionPassword = async (req, res) => {
+    try {
+        const email = normalizarTexto(req.body?.email).toLowerCase();
+
+        if (!email) {
+            return res.status(400).json({ message: "Email obligatorio" });
+        }
+
+        const respuestaGenerica = {
+            message: "Si el email esta registrado, enviaremos instrucciones para recuperar la contrasena."
+        };
+        const user = await UsuarioAuth.findOne({ email }).populate("personaId");
+
+        if (!user || !user.activo) {
+            return res.status(200).json(respuestaGenerica);
+        }
+
+        const token = crypto.randomBytes(32).toString("hex");
+        user.resetPasswordToken = hashToken(token);
+        user.resetPasswordExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+        await user.save();
+
+        await enviarRecuperacionPassword({
+            email: user.email,
+            nombre: getNombrePersona(user.personaId),
+            resetUrl: getResetPasswordUrl(token),
+        });
+
+        return res.status(200).json(respuestaGenerica);
+    } catch (error) {
+        console.error("Error solicitando recuperacion de password:", error.response?.data || error.message);
+        return res.status(500).json({
+            message: "No se pudo enviar el email de recuperacion"
+        });
+    }
+};
+
+const resetearPasswordConToken = async (req, res) => {
+    try {
+        const token = normalizarTexto(req.body?.token);
+        const password = normalizarTexto(req.body?.password);
+
+        if (!token || password.length < 6) {
+            return res.status(400).json({
+                message: "Token y contrasena nueva de al menos 6 caracteres son obligatorios"
+            });
+        }
+
+        if (!process.env.PASS_SEC) {
+            return res.status(500).json({ message: "Error de configuracion" });
+        }
+
+        const user = await UsuarioAuth.findOne({
+            resetPasswordToken: hashToken(token),
+            resetPasswordExpiresAt: { $gt: new Date() },
+            activo: true
+        }).populate("personaId");
+
+        if (!user) {
+            return res.status(400).json({
+                message: "El enlace de recuperacion es invalido o expiro"
+            });
+        }
+
+        const passwordEncriptada = CryptoJS.AES.encrypt(
+            password,
+            process.env.PASS_SEC
+        ).toString();
+
+        user.password = passwordEncriptada;
+        user.debeCambiarPassword = false;
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpiresAt = undefined;
+        await user.save();
+
+        if (user.personaId) {
+            user.personaId.password = passwordEncriptada;
+            await user.personaId.save();
+        }
+
+        return res.status(200).json({
+            message: "Contrasena actualizada correctamente"
+        });
+    } catch (error) {
+        console.error("Error reseteando password con token:", error);
+        return res.status(500).json({
+            message: "Error interno del servidor"
+        });
+    }
+};
+
 
 //registrar usuarios
 const registrar = async (req, res) => {
@@ -267,7 +388,7 @@ const registrar = async (req, res) => {
         const rolUpper = rol.toUpperCase();
         const esClienteOProveedor = rolUpper === "CLIENTE" || rolUpper === "PROVEEDOR";
 
-        if (!nombreTrim || !apellidoTrim || (!esClienteOProveedor && (!dniTexto || !emailLower))) {
+        if (!nombreTrim || !apellidoTrim || (!esClienteOProveedor && !emailLower)) {
             return res.status(400).json({
                 message: esClienteOProveedor ? "Nombre y apellido son obligatorios" : "Faltan campos obligatorios"
             });
@@ -309,14 +430,9 @@ const registrar = async (req, res) => {
 
         const esUsuarioSistema = rolUpper === "ADMIN" || rolUpper === "EMPLEADO";
         let authExistente = null;
+        const passwordSistema = normalizarTexto(password);
 
         if (esUsuarioSistema) {
-            if (!password) {
-                return res.status(400).json({
-                    message: "Password obligatorio para usuarios del sistema"
-                });
-            }
-
             if (!process.env.PASS_SEC) {
                 return res.status(500).json({
                     message: "Error de configuracion"
@@ -334,6 +450,12 @@ const registrar = async (req, res) => {
 
                 await UsuarioAuth.deleteOne({ _id: authExistente._id });
             }
+
+            if (passwordSistema.length < 6) {
+                return res.status(400).json({
+                    message: "La contraseña temporal debe tener al menos 6 caracteres"
+                });
+            }
         }
 
         const numeroClienteFinal = rolUpper === "CLIENTE"
@@ -346,7 +468,7 @@ const registrar = async (req, res) => {
 
         const passwordEncript = esUsuarioSistema
             ? CryptoJS.AES.encrypt(
-                password,
+                passwordSistema,
                 process.env.PASS_SEC
             ).toString()
             : undefined;
@@ -369,6 +491,7 @@ const registrar = async (req, res) => {
 
         // Crear UsuarioAuth SOLO si es usuario del sistema
         let usuarioAuth = null;
+        let emailEnviado = null;
 
         if (esUsuarioSistema) {
             try {
@@ -377,16 +500,44 @@ const registrar = async (req, res) => {
                     email: emailLower,
                     password: passwordEncript,
                     roles: [rolUpper],
-                    permisos: []
+                    permisos: [],
+                    debeCambiarPassword: true
                 });
+
+                emailEnviado = true;
+                try {
+                    await enviarAltaUsuarioSistema({
+                        email: emailLower,
+                        nombre: getNombrePersona(persona),
+                        passwordTemporal: passwordSistema,
+                        rol: rolUpper
+                    });
+                } catch (error) {
+                    emailEnviado = false;
+                    console.error('Error enviando alta de usuario:', error.response?.data || error.message);
+                }
             } catch (error) {
                 await Persona.findByIdAndDelete(persona._id);
                 throw error;
             }
+        } else if (emailLower) {
+            emailEnviado = true;
+            try {
+                await enviarBienvenida({
+                    email: emailLower,
+                    nombre: getNombrePersona(persona)
+                });
+            } catch (error) {
+                emailEnviado = false;
+                console.error('Error enviando bienvenida:', error.response?.data || error.message);
+            }
         }
 
         return res.status(201).json({
-            message: "Registro exitoso",
+            message: emailEnviado === false
+                ? "Registro exitoso, pero no se pudo enviar el email"
+                : "Registro exitoso",
+            emailEnviado,
             persona,
             usuarioAuth
         });
@@ -425,6 +576,8 @@ const obtenerSiguienteCodigoPersona = async (req, res) => {
 module.exports = {
     login,
     loginGoogle,
+    solicitarRecuperacionPassword,
+    resetearPasswordConToken,
     registrar,
     obtenerSiguienteCodigoPersona
 }

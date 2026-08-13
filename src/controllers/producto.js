@@ -198,7 +198,7 @@ const modificarProducto = async (req, res) => {
         const producto = await Producto.findOneAndUpdate(
             { slug: req.params.slug },
             productoInput,
-            { new: true, runValidators: true }
+            { returnDocument: "after", runValidators: true }
         );
 
         if (!producto) {
